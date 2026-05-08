@@ -15,3 +15,4 @@ app.add_middleware(
 async def health_check():
     """This is a normal health check endpoint"""
     return {"status" : "ok", "version":"0.1.0"}
+    
