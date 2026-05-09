@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from enum import Enum
-from typing import Optinal, List
+from typing import Optional, List
 from datetime import datetime
 import uuid
 
@@ -15,8 +15,14 @@ class VerificationStatus(str, Enum):
     PARTIAL = "PARTIAL"
     PROCESSING = "PROCESSING"
 
+class VerificationFlag(BaseModel):
+    """A single issue found during verification."""
+    code: str = Field(..., description="Machine-readable flag code e.g. 'NAME_MISMATCH'")
+    message: str = Field(..., description="Human-readable explanation")
+    severity: str = Field(..., description="'error' or 'warning'")
+
 class VerificationRequest(BaseModel):
-    document_type = DocumentType
+    document_type : DocumentType
     image_base64: Optional[str] = Field(
         None,
         description = "img"
