@@ -1,7 +1,8 @@
 import time
 import uuid
 import os
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.verification import (
     VerificationResponse,
     VerificationStatus,
@@ -12,7 +13,10 @@ from app.models.verification import (
 from app.services.ocr_service import ocr_service
 from app.services.pan_extractor import pan_extractor
 from app.services.gemini_extractor import gemini_extractor
-
+from app.core.database import get_db
+from app.models.db_models import VerificationJob
+from app.core.auth import generate_api_key
+from app.models.db_models import APIKey
 router = APIRouter(prefix="/v1", tags=["verification"])
 
 UPLOAD_DIR = "uploads"
@@ -30,7 +34,8 @@ OCR_CONFIDENCE_THRESHOLD = 0.75
 )
 async def verify_document(
     document_type: DocumentType = Form(...),
-    file: UploadFile = File(..., description="Image (JPEG/PNG) or PDF of the document")
+    file: UploadFile = File(..., description="Image (JPEG/PNG) or PDF of the document"),
+    db: AsyncSession = Depends(get_db)  # DB session injected automatically
 ):
     start_time = time.time()
 
@@ -74,7 +79,7 @@ async def verify_document(
             severity="warning"
         ))
 
-    # --- Step 2: Extract fields from OCR text ---
+    # --- Step 2: Extract fields ---
     if document_type == DocumentType.PAN:
         fields, ocr_flags = pan_extractor.extract(ocr_result)
         all_flags.extend(ocr_flags)
@@ -85,17 +90,15 @@ async def verify_document(
         should_use_gemini = (
             confidence < OCR_CONFIDENCE_THRESHOLD or
             len(error_flags) > 0 or
-            not fields.pan_number  # PAN not found by regex
+            not fields.pan_number
         )
 
         if should_use_gemini:
-            extraction_method = "gemini_vision"
+            extraction_method = "groq_vision"
             try:
                 gemini_data, gemini_confidence = gemini_extractor.extract(
                     file_bytes, document_type
                 )
-
-                # Merge: prefer Gemini fields over OCR where available
                 if gemini_data.get("pan_number"):
                     fields.pan_number = gemini_data["pan_number"]
                 if gemini_data.get("name"):
@@ -103,10 +106,8 @@ async def verify_document(
                 if gemini_data.get("date_of_birth"):
                     fields.date_of_birth = gemini_data["date_of_birth"]
 
-                # Take the higher confidence of the two
                 confidence = max(confidence, gemini_confidence)
 
-                # Remove PAN_NOT_FOUND flag if Gemini found it
                 if fields.pan_number:
                     all_flags = [
                         f for f in all_flags
@@ -115,14 +116,13 @@ async def verify_document(
 
             except Exception as e:
                 all_flags.append(VerificationFlag(
-                    code="GEMINI_FAILED",
+                    code="AI_EXTRACTION_FAILED",
                     message=f"AI extraction failed: {str(e)}",
                     severity="warning"
                 ))
 
     elif document_type == DocumentType.GST_CERTIFICATE:
-        # GST goes straight to Gemini — regex alone isn't reliable enough
-        extraction_method = "gemini_vision"
+        extraction_method = "groq_vision"
         try:
             gemini_data, gemini_confidence = gemini_extractor.extract(
                 file_bytes, document_type
@@ -149,7 +149,6 @@ async def verify_document(
             status = VerificationStatus.PARTIAL
         else:
             status = VerificationStatus.FAILED
-
     elif document_type == DocumentType.GST_CERTIFICATE:
         if fields.gstin and not has_errors:
             status = VerificationStatus.VERIFIED
@@ -162,6 +161,21 @@ async def verify_document(
 
     processing_time_ms = int((time.time() - start_time) * 1000)
 
+    # --- Step 5: Save to database ---
+    job = VerificationJob(
+        id=request_id,
+        status=status,
+        document_type=document_type,
+        extracted_fields=fields.model_dump(),
+        flags=[f.model_dump() for f in all_flags],
+        confidence_score=round(confidence, 3),
+        processing_time_ms=processing_time_ms,
+        file_path=file_path,
+        extraction_method=extraction_method
+    )
+    db.add(job)
+    # commit happens automatically via get_db() dependency
+
     return VerificationResponse(
         request_id=request_id,
         status=status,
@@ -171,3 +185,11 @@ async def verify_document(
         flags=all_flags,
         processing_time_ms=processing_time_ms
     )
+@router.post("/keys")
+async def create_api_key(
+    name: str, email: str, db: AsyncSession = Depends(get_db)
+):
+    raw_key, key_hash = generate_api_key()
+    key_record = APIKey(key_hash=key_hash, name=name, customer_email=email)
+    db.add(key_record)
+    return {"api_key": raw_key, "warning": "Save this key. It won't be shown again."}
