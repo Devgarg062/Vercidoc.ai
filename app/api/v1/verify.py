@@ -10,6 +10,8 @@ from app.models.verification import (
     DocumentType,
     VerificationFlag
 )
+from sqlalchemy import select
+from app.core.rate_limiter import rate_limiter
 from app.services.ocr_service import ocr_service
 from app.services.pan_extractor import pan_extractor
 from app.services.gemini_extractor import gemini_extractor
@@ -39,6 +41,8 @@ async def verify_document(
 ):
     start_time = time.time()
 
+# Add inside verify_document, after start_time line:
+    await rate_limiter.is_allowed(api_key_id="test", max_requests=60, window_seconds=60)
     # --- Validate file type ---
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
@@ -193,3 +197,29 @@ async def create_api_key(
     key_record = APIKey(key_hash=key_hash, name=name, customer_email=email)
     db.add(key_record)
     return {"api_key": raw_key, "warning": "Save this key. It won't be shown again."}
+
+@router.get("/status/{request_id}", response_model=VerificationResponse)
+async def get_verification_status(
+    request_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(VerificationJob).where(VerificationJob.id == request_id)
+    )
+    job = result.scalar_one_or_none()
+
+    if not job:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Verification job {request_id} not found"
+        )
+
+    return VerificationResponse(
+        request_id=job.id,
+        status=job.status,
+        document_type=job.document_type,
+        confidence_score=job.confidence_score or 0.0,
+        extracted_fields=ExtractedFields(**(job.extracted_fields or {})),
+        flags=[VerificationFlag(**f) for f in (job.flags or [])],
+        processing_time_ms=job.processing_time_ms
+    )
