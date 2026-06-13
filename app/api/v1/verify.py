@@ -42,7 +42,7 @@ async def verify_document(
     start_time = time.time()
 
 # Add inside verify_document, after start_time line:
-    await rate_limiter.is_allowed(api_key_id="test", max_requests=60, window_seconds=60)
+    #await rate_limiter.is_allowed(api_key_id="test", max_requests=60, window_seconds=60)
     # --- Validate file type ---
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
