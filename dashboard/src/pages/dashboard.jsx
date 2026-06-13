@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import axios from 'axios'
 
-const API_URL = 'http://localhost:8000'
+const API_URL = 'vercidocai-production.up.railway.app'
 
 const mockUsage = [
   { date: 'May 11', calls: 12 }, { date: 'May 12', calls: 28 },
