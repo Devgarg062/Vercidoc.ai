@@ -5,9 +5,9 @@ from fastapi import HTTPException, status
 
 redis_client = redis.from_url(
     os.getenv("REDIS_URL", "redis://localhost:6379"),
-    decode_responses=True
+    decode_responses=True,
+    protocol=2  # Force RESP2 protocol, compatible with Redis 3.x
 )
-
 class SlidingWindowRateLimiter:
 
     async def is_allowed(
