@@ -111,17 +111,18 @@ async def verify_document(
                     fields.date_of_birth = gemini_data["date_of_birth"]
 
                 confidence = max(confidence, gemini_confidence)
-                if fields.pan_number:
+               
+               # if fields.pan_number:
                 # Remove all OCR-related flags if Groq extracted successfully
-                all_flags = [
-                    f for f in all_flags
-                    if f.code not in [
-                        "PAN_NOT_FOUND",
-                        "NAME_NOT_FOUND", 
-                        "OCR_FAILED",
-                        "LOW_OCR_CONFIDENCE"
-                    ]
-                ]
+                #all_flags = [
+                    #f for f in all_flags
+                    #if f.code not in [
+                    #    "PAN_NOT_FOUND",
+                    #    "NAME_NOT_FOUND", 
+                    #    "OCR_FAILED",
+                    #    "LOW_OCR_CONFIDENCE"
+                    #]
+               # ]
                # if fields.pan_number:
                 #   all_flags = [
                 #        f for f in all_flags
@@ -152,7 +153,17 @@ async def verify_document(
                 message=f"GST extraction failed: {str(e)}",
                 severity="error"
             ))
-
+    if document_type == DocumentType.PAN:
+        if fields.pan_number and fields.name:
+            all_flags = [
+                f for f in all_flags
+                if f.code not in {
+                    "PAN_NOT_FOUND",
+                    "NAME_NOT_FOUND",
+                    "OCR_FAILED",
+                    "LOW_OCR_CONFIDENCE"
+                }
+            ]
     # --- Step 4: Determine final status ---
     has_errors = any(f.severity == "error" for f in all_flags)
 
