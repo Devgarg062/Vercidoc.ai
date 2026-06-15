@@ -111,12 +111,22 @@ async def verify_document(
                     fields.date_of_birth = gemini_data["date_of_birth"]
 
                 confidence = max(confidence, gemini_confidence)
-
                 if fields.pan_number:
-                    all_flags = [
-                        f for f in all_flags
-                        if f.code != "PAN_NOT_FOUND"
+                # Remove all OCR-related flags if Groq extracted successfully
+                all_flags = [
+                    f for f in all_flags
+                    if f.code not in [
+                        "PAN_NOT_FOUND",
+                        "NAME_NOT_FOUND", 
+                        "OCR_FAILED",
+                        "LOW_OCR_CONFIDENCE"
                     ]
+                ]
+               # if fields.pan_number:
+                #   all_flags = [
+                #        f for f in all_flags
+                #        if f.code != "PAN_NOT_FOUND"
+                #    ]
 
             except Exception as e:
                 all_flags.append(VerificationFlag(
