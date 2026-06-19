@@ -5,7 +5,10 @@ import cv2
 import numpy as np
 import io
 from typing import Optional
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+import platform
+if platform.system() == "Windows":
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# On Linux (Railway), tesseract is in PATH after nixpacks install — no need to set path
 class OCRService:
     """
     Responsible for extracting raw text from document images.
