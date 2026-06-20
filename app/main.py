@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.api.v1.verify import router as verify_router
 from app.core.logging import setup_logging, logger
-
+from app.api.v1.auth import router as auth_router
 # Setup logging when app starts
 setup_logging()
 
@@ -21,6 +21,7 @@ app.add_middleware(
 )
 
 app.include_router(verify_router)
+app.include_router(auth_router)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
