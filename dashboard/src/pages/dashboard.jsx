@@ -13,6 +13,7 @@ const mockUsage = [
 const maxCalls = Math.max(...mockUsage.map(d => d.calls))
 
 export default function Dashboard() {
+  const [welcomeKey, setWelcomeKey] = useState(sessionStorage.getItem('veridoc_new_key'))
   const [activeTab, setActiveTab] = useState('verify')
   const [file, setFile] = useState(null)
   const [docType, setDocType] = useState('PAN')
@@ -72,10 +73,22 @@ export default function Dashboard() {
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 24px' }}>
 
         {/* Page header */}
-        <div style={{ marginBottom: 32 }}>
+        <div style={{ marginBottom: 24 }}>
           <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>Dashboard</h1>
           <p style={{ color: '#64748b', fontSize: 14 }}>Manage your verifications, API keys, and usage.</p>
         </div>
+
+        {/* Welcome API key banner */}
+        {welcomeKey && (
+          <div style={{ background: '#042f2e', border: '1px solid #10b981', borderRadius: 12, padding: 20, marginBottom: 24 }}>
+            <p style={{ fontSize: 14, color: '#10b981', fontWeight: 600, marginBottom: 8 }}>Welcome! Here's your API key — save it now</p>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <code style={{ flex: 1, fontSize: 12, background: '#0a0f1e', padding: '10px 14px', borderRadius: 6, wordBreak: 'break-all', color: '#e2e8f0' }}>{welcomeKey}</code>
+              <button onClick={() => { navigator.clipboard.writeText(welcomeKey) }} className="btn-secondary" style={{ padding: '8px 12px', fontSize: 12 }}>Copy</button>
+              <button onClick={() => { sessionStorage.removeItem('veridoc_new_key'); setWelcomeKey(null) }} className="btn-ghost" style={{ padding: '8px 12px', fontSize: 12 }}>Dismiss</button>
+            </div>
+          </div>
+        )}
 
         {/* Stats row */}
         <div className="grid-4" style={{ marginBottom: 32 }}>

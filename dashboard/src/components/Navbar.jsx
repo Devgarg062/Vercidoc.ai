@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-
+import { useAuth } from '../context/AuthContext'
 export default function Navbar() {
   const [open, setOpen] = useState(false)
   const loc = useLocation()
   const isDash = loc.pathname === '/dashboard'
-
+  const { isAuthenticated, logout, user } = useAuth()
   return (
     <nav style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(10,15,30,0.95)', backdropFilter: 'blur(12px)', borderBottom: '1px solid #1e293b', padding: '0 24px' }}>
       <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', height: 60, gap: 32 }}>
@@ -23,10 +23,20 @@ export default function Navbar() {
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Link to="/login" className="btn-ghost hide-mobile" style={{ fontSize: 14 }}>Sign in</Link>
-          <Link to="/dashboard" className="btn-primary" style={{ fontSize: 14, padding: '8px 18px' }}>
-            {isDash ? 'Dashboard' : 'Get started'}
-          </Link>
+          {isAuthenticated ? (
+            <>
+              <span style={{ fontSize: 13, color: '#94a3b8' }} className="hide-mobile">{user?.email}</span>
+              <button onClick={() => { logout(); window.location.href = '/' }} className="btn-ghost" style={{ fontSize: 14 }}>Sign out</button>
+              {!isDash && (
+                <Link to="/dashboard" className="btn-primary" style={{ fontSize: 14, padding: '8px 18px' }}>Dashboard</Link>
+              )}
+            </>
+          ) : (
+            <>
+              <Link to="/login" className="btn-ghost hide-mobile" style={{ fontSize: 14 }}>Sign in</Link>
+              <Link to="/signup" className="btn-primary" style={{ fontSize: 14, padding: '8px 18px' }}>Get started</Link>
+            </>
+          )}
         </div>
       </div>
     </nav>
