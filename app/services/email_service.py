@@ -28,7 +28,7 @@ class EmailService:
 
         send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
             to=[{"email": to_email}],
-            sender={"name": "VeriDoc.ai", "email": "noreply@veridoc-demo.com"},
+            sender={"name": "VeriDoc.ai", "email": "devgarg062@gmail.com"},
             subject=subject,
             html_content=html_content
         )
