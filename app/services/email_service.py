@@ -1,16 +1,14 @@
-import resend
+import sib_api_v3_sdk
+from sib_api_v3_sdk.rest import ApiException
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-resend.api_key = os.getenv("RESEND_API_KEY")
+configuration = sib_api_v3_sdk.Configuration()
+configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
 
 class EmailService:
-    """
-    Sends OTP verification emails via Resend.
-    Free tier: 3000 emails/month, 100/day.
-    """
 
     def send_otp_email(self, to_email: str, otp_code: str, purpose: str = "signup"):
         subject = "Verify your VeriDoc.ai account" if purpose == "signup" else "Your VeriDoc.ai login code"
@@ -26,15 +24,19 @@ class EmailService:
         </div>
         """
 
+        api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+
+        send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
+            to=[{"email": to_email}],
+            sender={"name": "VeriDoc.ai", "email": "noreply@veridoc-demo.com"},
+            subject=subject,
+            html_content=html_content
+        )
+
         try:
-            resend.Emails.send({
-                "from": "VeriDoc.ai <onboarding@resend.dev>",
-                "to": [to_email],
-                "subject": subject,
-                "html": html_content
-            })
+            api_instance.send_transac_email(send_smtp_email)
             return True
-        except Exception as e:
+        except ApiException as e:
             print(f"[EmailService] Failed to send email: {e}")
             return False
 
