@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timedelta
 from jose import jwt
 from dotenv import load_dotenv
+from fastapi import Header, HTTPException
 
 load_dotenv()
 
@@ -35,3 +36,16 @@ class AuthService:
 
 
 auth_service = AuthService()
+
+
+def get_current_user_id(authorization: str = Header(...)) -> str:
+    """
+    FastAPI dependency that extracts and validates the user_id from a JWT Bearer token.
+    Use this on any dashboard endpoint that needs to know which user is logged in.
+    """
+    token = authorization.replace("Bearer ", "")
+    try:
+        payload = auth_service.decode_jwt_token(token)
+        return payload["sub"]
+    except Exception:
+        raise HTTPException(401, "Invalid or expired token")

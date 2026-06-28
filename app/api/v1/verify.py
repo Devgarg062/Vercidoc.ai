@@ -1,8 +1,9 @@
 import time
 import uuid
 import os
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from app.models.verification import (
     VerificationResponse,
     VerificationStatus,
@@ -10,15 +11,14 @@ from app.models.verification import (
     DocumentType,
     VerificationFlag
 )
-from sqlalchemy import select
 from app.core.rate_limiter import rate_limiter
 from app.services.ocr_service import ocr_service
 from app.services.pan_extractor import pan_extractor
 from app.services.gemini_extractor import gemini_extractor
 from app.core.database import get_db
-from app.models.db_models import VerificationJob
-from app.core.auth import generate_api_key
-from app.models.db_models import APIKey
+from app.models.db_models import VerificationJob, APIKey
+from app.core.auth import generate_api_key, hash_api_key
+
 router = APIRouter(prefix="/v1", tags=["verification"])
 
 UPLOAD_DIR = "uploads"
@@ -27,6 +27,23 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/jpg", "application/pdf"}
 MAX_FILE_SIZE_MB = 5
 OCR_CONFIDENCE_THRESHOLD = 0.75
+
+
+async def get_api_key_record(authorization: str, db: AsyncSession) -> APIKey | None:
+    """
+    Looks up the APIKey record from the Authorization header.
+    Returns None if no header or key not found — verify endpoint stays
+    usable without auth for now, but attaches user_id when a valid key is given.
+    """
+    if not authorization:
+        return None
+    raw_key = authorization.replace("Bearer ", "").strip()
+    if not raw_key:
+        return None
+    key_hash = hash_api_key(raw_key)
+    result = await db.execute(select(APIKey).where(APIKey.key_hash == key_hash))
+    return result.scalar_one_or_none()
+
 
 @router.post(
     "/verify",
@@ -37,12 +54,15 @@ OCR_CONFIDENCE_THRESHOLD = 0.75
 async def verify_document(
     document_type: DocumentType = Form(...),
     file: UploadFile = File(..., description="Image (JPEG/PNG) or PDF of the document"),
-    db: AsyncSession = Depends(get_db)  # DB session injected automatically
+    db: AsyncSession = Depends(get_db),
+    authorization: str = Header(None)
 ):
     start_time = time.time()
 
-# Add inside verify_document, after start_time line:
-    #await rate_limiter.is_allowed(api_key_id="test", max_requests=60, window_seconds=60)
+    # --- Look up API key + user (optional auth for now) ---
+    api_key_record = await get_api_key_record(authorization, db)
+    user_id = api_key_record.user_id if api_key_record else None
+
     # --- Validate file type ---
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
@@ -89,7 +109,6 @@ async def verify_document(
         all_flags.extend(ocr_flags)
         confidence = ocr_result.get("confidence", 0.0)
 
-        # --- Step 3: Cascade to Gemini if OCR confidence is low ---
         error_flags = [f for f in ocr_flags if f.severity == "error"]
         should_use_gemini = (
             confidence < OCR_CONFIDENCE_THRESHOLD or
@@ -111,23 +130,6 @@ async def verify_document(
                     fields.date_of_birth = gemini_data["date_of_birth"]
 
                 confidence = max(confidence, gemini_confidence)
-               
-               # if fields.pan_number:
-                # Remove all OCR-related flags if Groq extracted successfully
-                #all_flags = [
-                    #f for f in all_flags
-                    #if f.code not in [
-                    #    "PAN_NOT_FOUND",
-                    #    "NAME_NOT_FOUND", 
-                    #    "OCR_FAILED",
-                    #    "LOW_OCR_CONFIDENCE"
-                    #]
-               # ]
-               # if fields.pan_number:
-                #   all_flags = [
-                #        f for f in all_flags
-                #        if f.code != "PAN_NOT_FOUND"
-                #    ]
 
             except Exception as e:
                 all_flags.append(VerificationFlag(
@@ -153,6 +155,7 @@ async def verify_document(
                 message=f"GST extraction failed: {str(e)}",
                 severity="error"
             ))
+
     if document_type == DocumentType.PAN and fields.pan_number:
         all_flags = [
             f for f in all_flags
@@ -163,6 +166,7 @@ async def verify_document(
                 "LOW_OCR_CONFIDENCE"
             }
         ]
+
     # --- Step 4: Determine final status ---
     has_errors = any(f.severity == "error" for f in all_flags)
 
@@ -185,7 +189,7 @@ async def verify_document(
 
     processing_time_ms = int((time.time() - start_time) * 1000)
 
-    # --- Step 5: Save to database ---
+    # --- Step 5: Save to database (now with user_id) ---
     job = VerificationJob(
         id=request_id,
         status=status,
@@ -195,10 +199,21 @@ async def verify_document(
         confidence_score=round(confidence, 3),
         processing_time_ms=processing_time_ms,
         file_path=file_path,
-        extraction_method=extraction_method
+        extraction_method=extraction_method,
+        user_id=user_id,
+        api_key_id=api_key_record.id if api_key_record else None
     )
     db.add(job)
-    # commit happens automatically via get_db() dependency
+
+    # --- Update API key usage count ---
+    if api_key_record:
+        api_key_record.total_requests = (api_key_record.total_requests or 0) + 1
+
+    # Delete file after processing — don't store documents
+    try:
+        os.remove(file_path)
+    except Exception:
+        pass
 
     return VerificationResponse(
         request_id=request_id,
@@ -209,6 +224,8 @@ async def verify_document(
         flags=all_flags,
         processing_time_ms=processing_time_ms
     )
+
+
 @router.post("/keys")
 async def create_api_key(
     name: str, email: str, db: AsyncSession = Depends(get_db)
@@ -217,6 +234,7 @@ async def create_api_key(
     key_record = APIKey(key_hash=key_hash, name=name, customer_email=email)
     db.add(key_record)
     return {"api_key": raw_key, "warning": "Save this key. It won't be shown again."}
+
 
 @router.get("/status/{request_id}", response_model=VerificationResponse)
 async def get_verification_status(

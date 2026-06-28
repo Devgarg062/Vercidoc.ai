@@ -29,6 +29,7 @@ class VerificationJob(Base):
 
     # Billing tracking (you'll need this later)
     api_key_id = Column(String, nullable=True)
+    user_id = Column(String, nullable=True)
 
     # Timestamps - created_at is set automatically by DB
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -46,6 +47,7 @@ class APIKey(Base):
     key_hash = Column(String, nullable=False, unique=True)  # Never store raw keys
     name = Column(String, nullable=False)  # "Production key", "Test key"
     customer_email = Column(String, nullable=False)
+    user_id = Column(String, nullable=True)
     is_active = Column(SAEnum("active", "revoked", name="key_status"), default="active")
     total_requests = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

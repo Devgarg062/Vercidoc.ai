@@ -91,10 +91,10 @@ async def verify_otp(req: VerifyOTPRequest, db: AsyncSession = Depends(get_db)):
     user.is_verified = "verified"
 
     # Auto-generate API key on first verification
+    # Auto-generate API key on first verification
     raw_key, key_hash = generate_api_key()
-    api_key = APIKey(key_hash=key_hash, name="Default key", customer_email=user.email)
+    api_key = APIKey(key_hash=key_hash, name="Default key", customer_email=user.email, user_id=user.id)
     db.add(api_key)
-
     token = auth_service.create_jwt_token(user.id, user.email)
 
     return {
