@@ -1,18 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import axios from 'axios'
+import { useAuth } from '../context/AuthContext'
 
 const API_URL = 'https://vercidocai-production.up.railway.app'
 
-const mockUsage = [
-  { date: 'May 11', calls: 12 }, { date: 'May 12', calls: 28 },
-  { date: 'May 13', calls: 19 }, { date: 'May 14', calls: 45 },
-  { date: 'May 15', calls: 33 }, { date: 'May 16', calls: 67 },
-  { date: 'May 17', calls: 54 },
-]
-
-const maxCalls = Math.max(...mockUsage.map(d => d.calls))
-
 export default function Dashboard() {
+  const { token } = useAuth()
   const [welcomeKey, setWelcomeKey] = useState(sessionStorage.getItem('veridoc_new_key'))
   const [activeTab, setActiveTab] = useState('verify')
   const [file, setFile] = useState(null)
@@ -25,6 +18,28 @@ export default function Dashboard() {
   const [keyEmail, setKeyEmail] = useState('')
   const [generatedKey, setGeneratedKey] = useState(null)
   const [copied, setCopied] = useState(false)
+  const [stats, setStats] = useState(null)
+  const [usageData, setUsageData] = useState([])
+  const [recentVerifications, setRecentVerifications] = useState([])
+  const [statsLoading, setStatsLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    const headers = { Authorization: `Bearer ${token}` }
+
+    axios.get(`${API_URL}/v1/stats/overview`, { headers })
+      .then(res => setStats(res.data))
+      .catch(err => console.error('Stats error:', err))
+
+    axios.get(`${API_URL}/v1/stats/usage-by-day`, { headers })
+      .then(res => setUsageData(res.data.usage || []))
+      .catch(err => console.error('Usage error:', err))
+
+    axios.get(`${API_URL}/v1/stats/recent-verifications`, { headers })
+      .then(res => setRecentVerifications(res.data.verifications || []))
+      .catch(err => console.error('Recent error:', err))
+      .finally(() => setStatsLoading(false))
+  }, [token])
 
   const verify = async () => {
     if (!file) return
@@ -93,14 +108,16 @@ export default function Dashboard() {
         {/* Stats row */}
         <div className="grid-4" style={{ marginBottom: 32 }}>
           {[
-            { label: 'Total verifications', value: '258', change: '+12 today' },
-            { label: 'Success rate', value: '97.3%', change: '+0.2%' },
-            { label: 'Avg response time', value: '1.4s', change: '-0.1s' },
-            { label: 'API calls remaining', value: '242', change: 'of 500' },
+            { label: 'Total verifications', value: stats ? stats.total_verifications : '—', change: stats ? `+${stats.verifications_today} today` : '' },
+            { label: 'Success rate', value: stats ? `${stats.success_rate}%` : '—', change: 'last 30 days' },
+            { label: 'Avg response time', value: stats ? `${stats.avg_response_time_seconds}s` : '—', change: 'per verification' },
+            { label: 'Total API requests', value: stats ? stats.total_api_requests : '—', change: `${stats ? stats.active_api_keys : 0} active keys` },
           ].map(s => (
             <div key={s.label} style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12, padding: '16px 20px' }}>
               <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>{s.label}</div>
-              <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>{s.value}</div>
+              <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>
+                {statsLoading ? <span style={{ color: '#334155' }}>...</span> : s.value}
+              </div>
               <div style={{ fontSize: 12, color: '#475569' }}>{s.change}</div>
             </div>
           ))}
@@ -160,7 +177,6 @@ export default function Dashboard() {
                   <><span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid #ffffff44', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} /> Analyzing...</>
                 ) : 'Verify document'}
               </button>
-
               <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             </div>
 
@@ -281,24 +297,37 @@ export default function Dashboard() {
         {activeTab === 'usage' && (
           <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12, padding: 24 }}>
             <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 24 }}>API usage — last 7 days</h2>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: 160, marginBottom: 8 }}>
-              {mockUsage.map(d => (
-                <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 11, color: '#64748b' }}>{d.calls}</span>
-                  <div style={{ width: '100%', background: '#3b82f6', borderRadius: '4px 4px 0 0', height: `${(d.calls / maxCalls) * 120}px`, transition: 'height 0.3s', minHeight: 4 }} />
+
+            {usageData.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: '#475569' }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>📊</div>
+                <p style={{ fontSize: 14 }}>No verification data yet. Start verifying documents to see usage.</p>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: 160, marginBottom: 8 }}>
+                  {usageData.map(d => (
+                    <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 11, color: '#64748b' }}>{d.calls}</span>
+                      <div style={{ width: '100%', background: '#3b82f6', borderRadius: '4px 4px 0 0', height: `${(d.calls / Math.max(...usageData.map(x => x.calls))) * 120}px`, minHeight: 4 }} />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: 12 }}>
-              {mockUsage.map(d => (
-                <div key={d.date} style={{ flex: 1, textAlign: 'center', fontSize: 11, color: '#475569' }}>{d.date.split(' ')[1]}</div>
-              ))}
-            </div>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  {usageData.map(d => (
+                    <div key={d.date} style={{ flex: 1, textAlign: 'center', fontSize: 11, color: '#475569' }}>
+                      {d.date.slice(5)}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
             <div style={{ marginTop: 24, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
               {[
-                { label: 'Total this week', value: '258 calls' },
-                { label: 'Success rate', value: '97.3%' },
-                { label: 'Plan usage', value: '51.6% of 500' },
+                { label: 'Total this week', value: statsLoading ? '...' : `${usageData.reduce((a, b) => a + b.calls, 0)} calls` },
+                { label: 'Success rate', value: statsLoading ? '...' : `${stats?.success_rate || 0}%` },
+                { label: 'Active API keys', value: statsLoading ? '...' : `${stats?.active_api_keys || 0}` },
               ].map(s => (
                 <div key={s.label} style={{ background: '#0a0f1e', borderRadius: 8, padding: '14px 16px' }}>
                   <p style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{s.label}</p>
@@ -306,6 +335,24 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
+
+            {recentVerifications.length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Recent verifications</p>
+                {recentVerifications.map(v => (
+                  <div key={v.request_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #0f172a' }}>
+                    <div>
+                      <span style={{ fontSize: 13, fontFamily: 'monospace', color: '#94a3b8' }}>{v.request_id.slice(0, 8)}...</span>
+                      <span style={{ fontSize: 12, color: '#475569', marginLeft: 12 }}>{v.document_type}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, color: v.status === 'verified' ? '#10b981' : '#ef4444', fontWeight: 500 }}>{v.status}</span>
+                      <span style={{ fontSize: 11, color: '#475569' }}>{v.created_at ? new Date(v.created_at).toLocaleDateString() : ''}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
